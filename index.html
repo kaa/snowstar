@@ -1,0 +1,168 @@
+<html>
+	<head>
+		<title></title>
+		<style>
+			body { margin: 10px; height: 100%; }
+			#display { float: left; margin: auto; width: 400px; height: 400px; border: 1px solid #ccc; }
+			#display canvas { width: 100%; height: 100% }
+			#editor { float: left; margin: 0 0 0 10px; border: 1px solid #ccc; width: 400px; height: 400px; }
+			svg { display: block; margin: 0;}
+		</style>
+	</head>
+	<body>
+		<script type="text/javascript" src="three.min.js"></script>
+		<script type="text/javascript" src="svg.min.js"></script>
+		<script type="text/javascript" src="svg.draggable.min.js"></script>
+		<script type="text/javascript" src="dodecahedron.js"></script>
+		<script type="text/javascript" src="grid.js"></script>
+		<script type="text/javascript" src="sheet.js"></script>
+		<script type="text/javascript">
+
+			var wrapper = document.createElement("div");
+			wrapper.id = "display";
+			document.body.appendChild(wrapper);
+
+			var editor = document.createElement("svg");
+			editor.id = "editor";
+			var pattern = document.createElement("pattern");
+			pattern.setAttribute("id","hatch");
+			pattern.setAttribute("patternUnits","hatch");
+			pattern.setAttribute("width","4");
+			pattern.setAttribute("height","4");
+			var path = document.createElement("path");
+			path.setAttribute("d","M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2");
+			pattern.appendChild(path);
+			editor.appendChild(pattern);
+			document.body.appendChild(editor);
+
+			var draw = SVG(editor);
+			draw.viewbox(0, 0, 1, 1);
+			var polygon = draw.polygon("").fill("url(#hatch)");
+
+			var points = [], count = 20;
+			for(var i=0; i<count; i++) {
+				points.push(draw.circle(0.05).center(1-(i/count),Math.max(0.001,i/count)));
+			}
+			for(var i=0; i<points.length; i++) {
+				points[i]
+					.draggable({
+						minX: -0.025, minY: -0.025, maxX: 1.025, maxY: 1.025
+					})
+					.fill("rgba(0,96,0,0.5)")
+					.stroke({color: "darkgreen", width: 0.005});
+				points[i].dragmove = onDrag;
+			}
+			function onDrag(off,evt) {
+				var p = pointsToPolygon();
+				resetPolygon(p);
+				resetGeometry(p);
+				redrawNeeded = true;
+			};
+
+			function pointsToPolygon() {
+				var p = points.map(function(t) { return [t.cx(), t.cy()] });
+				p.unshift([1.0,0.0]);
+				p.push([0.0, 1.0]);
+				return p;
+			}
+
+
+			var mouse = new THREE.Vector2();
+
+			var camera = new THREE.PerspectiveCamera(60, wrapper.clientWidth / wrapper.clientHeight, 0.1, 1000 );
+			var cameraFocusPoint = new THREE.Vector3(0, 0, 0);
+			var cameraBasePosition = new THREE.Vector3(0, 0, 4);
+			camera.position = cameraBasePosition.clone();
+			camera.lookAt(cameraFocusPoint);
+
+			var scene = new THREE.Scene();
+
+			var renderer = new THREE.WebGLRenderer({antialias: true});
+			renderer.setSize( wrapper.clientWidth, wrapper.clientHeight );
+			wrapper.appendChild( renderer.domElement );
+
+			var projector = new THREE.Projector();
+			var solid = new THREE.IcosahedronGeometry(1,0);
+
+			var faceMaterial = new THREE.MeshLambertMaterial({ 
+				color: "#ffffff",
+				transparency: 0.3,
+				shading: THREE.FlatShading
+			});
+			var wireframeMaterial = new THREE.MeshLambertMaterial({
+				color: "#eee",
+				shading: THREE.FlatShading,
+				wireframe: true,
+				wireframeLinewidth: 2
+			});
+
+			var star;
+			(function(){
+				var p = pointsToPolygon();
+				resetGeometry(p);
+				resetPolygon(p);
+			})();
+
+			function resetGeometry(points) {
+				console.log("Reset geometry");
+				var geometry = new THREE.Geometry();
+				for(var i=0; i<solid.vertices.length; i++) {
+					var vectorPoints = points.map(function(p){
+						return new THREE.Vector3(0,p[0]*1,p[1]*2);
+					});
+					var spike = new THREE.LatheGeometry(vectorPoints, 5, 0, 2*Math.PI);
+//					spike.applyMatrix(new THREE.Matrix4().makeRotationZ(Math.PI/4));
+					spike.applyMatrix(new THREE.Matrix4().makeTranslation(
+						0,0,1
+					));
+					spike.applyMatrix(new THREE.Matrix4().lookAt(
+						solid.vertices[i],
+						new THREE.Vector3(0,0,0),
+						new THREE.Vector3(0,0,1)
+					));
+					spike.mergeVertices();
+					THREE.GeometryUtils.merge(geometry, spike);
+				}
+				scene.remove(star);
+				//star = new THREE.Mesh(geometry, faceMaterial);
+				star = new THREE.SceneUtils.createMultiMaterialObject(
+					geometry,
+					[faceMaterial,wireframeMaterial]
+				);
+				scene.add(star);
+			}
+			function resetPolygon(points) {
+				polygon.attr("points", points.map(function(e){ return e[0]+","+e[1] }).join(" ")+" 0,0");
+			};
+
+			// add subtle ambient lighting
+			var directionalLight = new THREE.DirectionalLight(0xB0B0B0);
+			directionalLight.position.set(30, 50, 40).normalize();
+			scene.add(directionalLight);
+			var ambientLight = new THREE.AmbientLight(0x303030);
+			scene.add(ambientLight);
+
+			var r = 0;
+			var redrawNeeded = true;
+			(function render() {
+				requestAnimationFrame(render);
+				r += 0.01;
+				star.rotation.y = r;
+				renderer.render(scene, camera);
+				redrawNeeded = false;
+			})();
+
+			wrapper.addEventListener("mousemove", function(evt){
+				if(evt.which===0) return;
+				redrawNeeded = true;
+				mouse.x = evt.x;
+				mouse.y = evt.y;
+				dx = ((wrapper.clientWidth/2-mouse.x+wrapper.offsetLeft)/(wrapper.clientWidth/2)) * 10.0;
+				dy = ((wrapper.clientHeight/2-mouse.y+wrapper.offsetTop)/(wrapper.clientHeight/2)) * 10.0;
+				camera.position.x = cameraBasePosition.x + dx;
+				camera.position.y = cameraBasePosition.y + dy;
+				camera.lookAt(cameraFocusPoint);
+			});
+		</script>
+	</body>
+</html>
